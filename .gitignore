@@ -1,0 +1,17 @@
+# Environment files
+**/.env
+
+# Python
+**/.venv/
+**/__pycache__/
+**/*.pyc
+
+# Node / React
+**/node_modules/
+
+# Editors
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db

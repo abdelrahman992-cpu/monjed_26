@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-display: "Space Grotesk", ui-sans-serif, sans-serif;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* Soft blue-gray canvas (light) */
+  --color-night: #f5f7fb;
+  --color-panel: #ffffff;
+  --color-raised: #e8eef8;
+  --color-line: #cfd8e6;
+  --color-bone: #0f172a;
+  --color-mist: #334155;
+  --color-slate: #64748b;
+  --color-muted: #94a3b8;
+  --color-amber: #1d4ed8;
+  --color-amber-bright: #3b82f6;
+  --color-ink: #ffffff;
+  --color-crimson: #e11d48;
+  --color-teal: #0d9488;
+}
+
+/* Dark mode — same token names, navy mission-control surface */
+.dark {
+  --color-night: #0b1220;
+  --color-panel: #121a2b;
+  --color-raised: #1a2438;
+  --color-line: #2a3548;
+  --color-bone: #e8eef8;
+  --color-mist: #b8c4d8;
+  --color-slate: #8896ab;
+  --color-muted: #64748b;
+  --color-amber: #3b82f6;
+  --color-amber-bright: #60a5fa;
+  --color-ink: #0b1220;
+  --color-crimson: #fb7185;
+  --color-teal: #2dd4bf;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--color-night);
+  color: var(--color-bone);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: var(--color-amber);
+  color: #ffffff;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-amber);
+  outline-offset: 2px;
+}
+
+@keyframes ticker {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-ticker {
+  animation: ticker 32s linear infinite;
+}
+
+@keyframes bot-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes bot-wave {
+  0%,
+  100% {
+    transform: rotate(8deg);
+  }
+  50% {
+    transform: rotate(-14deg);
+  }
+}
+
+@keyframes bot-pulse-ring {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.03);
+  }
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(12px);
+    opacity: 0.85;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .animate-ticker {
+    animation: none;
+  }
+}
+
+/* Leaflet — keep map chrome clean inside MONJED panels */
+.monjed-risk-map .leaflet-container {
+  background: #f1f5f9;
+  font-family: var(--font-sans);
+}
+
+.dark .monjed-risk-map .leaflet-container {
+  background: #0b1220;
+}
+
+.monjed-risk-map .leaflet-control-attribution {
+  font-size: 9px;
+  background: rgba(255, 255, 255, 0.85);
+  color: #64748b;
+  max-width: 70%;
+}
+
+.dark .monjed-risk-map .leaflet-control-attribution {
+  background: rgba(18, 26, 43, 0.9);
+  color: #8896ab;
+}
+
+.monjed-risk-map .leaflet-tooltip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  box-shadow: none;
+  padding: 4px 8px;
+}
