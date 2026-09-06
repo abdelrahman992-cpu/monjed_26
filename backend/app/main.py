@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-
+from app.routers.zones import router as zones_router
 from dotenv import load_dotenv
 
 # Repo root so top-level AI/ package imports resolve when running from backend/.
@@ -24,7 +24,7 @@ from app.routers.pipeline import router as pipeline_router
 from app.routers.assistance import router as assistance_router
 from app.routers.accessibility import router as accessibility_router
 from app.routers.dashboard import router as dashboard_router
-
+from app.routers.risk import router as risk_router
 from app.routers import users
 
 from app.routers import auth
@@ -38,7 +38,7 @@ app = FastAPI(
     version="0.1.0",
 )
 
-
+app.include_router(zones_router)
 # ============================================================
 # CORS
 # ============================================================
@@ -67,7 +67,7 @@ app.add_middleware(
 # ============================================================
 # ROUTERS
 # ============================================================
-
+app.include_router(risk_router)
 app.include_router(flood_router)
 app.include_router(earthquake_router)
 app.include_router(community_reports_router)

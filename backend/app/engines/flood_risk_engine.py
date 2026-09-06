@@ -69,3 +69,4 @@ def calculate_flood_risk(data: FloodRiskInput) -> FloodRiskResult:
         risk_level=risk_level,
         reasons=reasons,
     )
+
