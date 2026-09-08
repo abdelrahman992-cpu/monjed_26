@@ -58,9 +58,33 @@ export default function HelpPage() {
   const [phone, setPhone] = useState(session?.phone || "");
   const [details, setDetails] = useState("");
   const [people, setPeople] = useState("1");
+  const [latitude, setLatitude] = useState(null);
+  const [longitude, setLongitude] = useState(null);
+  const [geoBusy, setGeoBusy] = useState(false);
   const [saved, setSaved] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  function captureGps() {
+    if (!navigator.geolocation) {
+      setError("Geolocation is not available in this browser.");
+      return;
+    }
+    setGeoBusy(true);
+    setError("");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLatitude(Number(pos.coords.latitude.toFixed(6)));
+        setLongitude(Number(pos.coords.longitude.toFixed(6)));
+        setGeoBusy(false);
+      },
+      () => {
+        setError("Could not read GPS. Allow location access or enter coordinates.");
+        setGeoBusy(false);
+      },
+      { enableHighAccuracy: true, timeout: 12000 }
+    );
+  }
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -90,6 +114,9 @@ export default function HelpPage() {
           ? `${needsSummary}. ${detailText}`
           : `${needsSummary}. People: ${people}.`,
         accessibility_needs: accessibilityNeeds,
+        ...(latitude != null && longitude != null
+          ? { latitude, longitude }
+          : {}),
       });
       setSaved(record);
     } catch (err) {
@@ -125,14 +152,21 @@ export default function HelpPage() {
           </div>
           <p className="mt-4 text-sm text-mist">{saved.description}</p>
           <p className="mt-2 text-xs text-slate">{saved.location} · zone {saved.zone_id}</p>
+          {saved.latitude != null && saved.longitude != null && (
+            <p className="mt-1 font-mono text-[10px] text-slate">
+              GPS {saved.latitude}, {saved.longitude}
+            </p>
+          )}
           {Array.isArray(saved.accessibility_needs) && saved.accessibility_needs.length > 0 && (
             <p className="mt-2 text-xs text-slate font-mono">
               Accessibility: {saved.accessibility_needs.join(", ")}
             </p>
           )}
-          <Link to="/map" className="mt-6 inline-flex items-center gap-1.5 text-sm text-amber hover:underline">
-            Back to map <ArrowRight size={14} />
-          </Link>
+          <div className="mt-6 flex flex-wrap gap-4">
+            <Link to="/map" className="inline-flex items-center gap-1.5 text-sm text-amber hover:underline">
+              Back to map <ArrowRight size={14} />
+            </Link>
+          </div>
         </div>
       ) : (
         <form onSubmit={onSubmit} className="mt-8 space-y-5">
@@ -200,6 +234,56 @@ export default function HelpPage() {
             required
             minLength={2}
           />
+          <div className="rounded-lg border border-line bg-panel/40 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-mono text-[10px] tracking-[0.14em] text-slate">
+                GPS FOR ROBOT DISPATCH
+              </p>
+              <button
+                type="button"
+                onClick={captureGps}
+                disabled={geoBusy}
+                className="rounded-md border border-line px-2.5 py-1 text-[11px] text-mist hover:text-bone disabled:opacity-50"
+              >
+                {geoBusy ? "Reading…" : "Use my location"}
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block text-xs text-mist">
+                Latitude
+                <input
+                  type="number"
+                  step="any"
+                  className="mt-1 w-full rounded-md border border-line bg-night px-2 py-1.5 text-sm text-bone"
+                  value={latitude ?? ""}
+                  onChange={(e) =>
+                    setLatitude(
+                      e.target.value === "" ? null : Number(e.target.value)
+                    )
+                  }
+                  placeholder="-1.2921"
+                />
+              </label>
+              <label className="block text-xs text-mist">
+                Longitude
+                <input
+                  type="number"
+                  step="any"
+                  className="mt-1 w-full rounded-md border border-line bg-night px-2 py-1.5 text-sm text-bone"
+                  value={longitude ?? ""}
+                  onChange={(e) =>
+                    setLongitude(
+                      e.target.value === "" ? null : Number(e.target.value)
+                    )
+                  }
+                  placeholder="36.8219"
+                />
+              </label>
+            </div>
+            <p className="text-[11px] text-slate">
+              Optional but recommended — helps ops dispatch response units to your exact location.
+            </p>
+          </div>
           <TextField
             label="How many people"
             type="number"

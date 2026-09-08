@@ -1,11 +1,10 @@
-from fastapi import (
-    APIRouter,
-    HTTPException,
-)
+from fastapi import APIRouter, HTTPException, BackgroundTasks
+from typing import Optional, List
 
 from app.schemas.assistance import (
     AssistanceRequestInput,
     AssistanceRequestRecord,
+    DistressRequest,
 )
 
 from app.schemas.volunteer import (
@@ -24,9 +23,6 @@ from app.services.assistance_store import (
     resolve_request,
 )
 
-# NOTE: Static paths like /requests/pending must be registered before
-# /requests/{request_id} or FastAPI will treat "pending" as an id.
-
 from app.services.volunteer_store import (
     add_volunteer,
     get_all_volunteers,
@@ -35,14 +31,15 @@ from app.services.volunteer_store import (
     set_volunteer_availability,
 )
 
-from app.engines.volunteer_matching import (
-    match_volunteer,
-)
+from app.engines.volunteer_matching import match_volunteer
 
+# Repositories & Services for Automatic Guest handling
+from database.users_repository import get_or_create_guest_user
+from app.services.sms.sms_service import send_alert_sms as send_sms
 
 
 # ============================================================
-# ROUTER
+# ROUTER CONFIGURATION
 # ============================================================
 
 router = APIRouter(
@@ -51,40 +48,70 @@ router = APIRouter(
 )
 
 
-
 # ============================================================
 # HELPERS
 # ============================================================
 
-def _get_request_or_404(
-    request_id: str,
-) -> AssistanceRequestRecord:
-
-    request = get_request(
-        request_id
-    )
-
+def _get_request_or_404(request_id: str) -> AssistanceRequestRecord:
+    request = get_request(request_id)
     if request is None:
-
         raise HTTPException(
             status_code=404,
             detail="Assistance request not found.",
         )
-
     return request
 
 
-
-def _requires_trained_responder(
-    request: AssistanceRequestRecord,
-) -> bool:
-
+def _requires_trained_responder(request: AssistanceRequestRecord) -> bool:
     return (
         request.requires_trained_responder
-        or
-        request.request_type == "rescue_support"
+        or request.request_type == "rescue_support"
     )
 
+
+# ============================================================
+# DIRECT DISTRESS & GUEST WORKFLOW
+# ============================================================
+
+@router.post("/distress", response_model=dict)
+async def create_distress_signal(
+    payload: DistressRequest, 
+    background_tasks: BackgroundTasks
+):
+    """
+    Rapid distress endpoint.
+    Automatically provisions/fetches a Guest account via phone number 
+    and logs the emergency request.
+    """
+    # 1. Automatic Guest Account Provisioning
+    user = get_or_create_guest_user(payload.phone)
+
+    # 2. Build Assistance Request Payload
+    assistance_input = AssistanceRequestInput(
+        zone_id="emergency_default",
+        location=f"GPS ({payload.latitude}, {payload.longitude})" if payload.latitude else "Unknown Location",
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        hazard="flood",  # Default system emergency classification
+        request_type="rescue_support",
+        priority="critical",
+        description=payload.details or "Direct distress signal submitted via guest flow.",
+        requester_phone=payload.phone
+    )
+
+    # 3. Create Record
+    record = create_assistance_request(assistance_input)
+
+    # 4. Dispatch SMS Confirmation
+    confirmation_msg = f"Emergency request received. ID: {record.request_id}. Help is on the way."
+    background_tasks.add_task(send_sms, payload.phone, confirmation_msg)
+
+    return {
+        "status": "success",
+        "guest_id": user.get("user_id"),
+        "request_id": record.request_id,
+        "message": "Distress request logged and responders notified."
+    }
 
 
 # ============================================================
@@ -98,10 +125,7 @@ def _requires_trained_responder(
 def register_volunteer(
     data: VolunteerInput,
 ) -> VolunteerRecord:
-
-    return add_volunteer(
-        data
-    )
+    return add_volunteer(data)
 
 
 # ============================================================
@@ -110,38 +134,29 @@ def register_volunteer(
 
 @router.get(
     "/volunteers",
-    response_model=list[VolunteerRecord],
+    response_model=List[VolunteerRecord],
 )
 def list_volunteers(
-    available: bool | None = None,
-    zone_id: str | None = None,
-) -> list[VolunteerRecord]:
+    available: Optional[bool] = None,
+    zone_id: Optional[str] = None,
+) -> List[VolunteerRecord]:
     """
     Return volunteers/responders for the frontend/admin panel.
-
-    Optional query filters:
-    - available=true|false
-    - zone_id=<zone>
+    Optional query filters: available, zone_id.
     """
-
     volunteers = get_all_volunteers()
 
     if zone_id is not None:
-
         normalized_zone = zone_id.strip()
-
         volunteers = [
             volunteer
             for volunteer in volunteers
-            if volunteer.zone_id.strip() == normalized_zone
+            if volunteer.zone_id.strip().upper() == normalized_zone.upper()
         ]
 
     if available is not None:
-
         volunteers = [
-            volunteer
-            for volunteer in volunteers
-            if volunteer.available == available
+            v for v in volunteers if v.available == available
         ]
 
     return volunteers
@@ -159,19 +174,8 @@ def update_volunteer_availability(
     volunteer_id: str,
     data: VolunteerAvailabilityUpdate,
 ) -> VolunteerRecord:
-    """
-    Update volunteer availability.
-
-    This endpoint does not modify skills, qualifications,
-    responder level, or assignment safety rules.
-    """
-
-    volunteer = get_volunteer(
-        volunteer_id
-    )
-
+    volunteer = get_volunteer(volunteer_id)
     if volunteer is None:
-
         raise HTTPException(
             status_code=404,
             detail="Volunteer or responder not found.",
@@ -183,7 +187,6 @@ def update_volunteer_availability(
     )
 
     if updated is None:
-
         raise HTTPException(
             status_code=500,
             detail="Volunteer availability could not be updated.",
@@ -198,35 +201,21 @@ def update_volunteer_availability(
 
 @router.get(
     "/volunteers/{volunteer_id}/requests",
-    response_model=list[AssistanceRequestRecord],
+    response_model=List[AssistanceRequestRecord],
 )
 def volunteer_requests(
     volunteer_id: str,
-) -> list[AssistanceRequestRecord]:
-    """
-    Return assistance requests assigned to one volunteer.
-
-    Used by the Volunteer Inbox frontend.
-    """
-
-    volunteer = get_volunteer(
-        volunteer_id
-    )
-
+) -> List[AssistanceRequestRecord]:
+    volunteer = get_volunteer(volunteer_id)
     if volunteer is None:
-
         raise HTTPException(
             status_code=404,
             detail="Volunteer or responder not found.",
         )
 
     return [
-        request
-        for request in get_all_requests()
-        if (
-            request.assigned_volunteer_id
-            == volunteer.volunteer_id
-        )
+        req for req in get_all_requests()
+        if req.assigned_volunteer_id == volunteer.volunteer_id
     ]
 
 
@@ -241,63 +230,46 @@ def volunteer_requests(
 def create_request(
     data: AssistanceRequestInput,
 ) -> AssistanceRequestRecord:
-
-    return create_assistance_request(
-        data
-    )
-
+    return create_assistance_request(data)
 
 
 # ============================================================
-# LIST ALL REQUESTS (ops)
+# LIST ALL REQUESTS (OPS)
 # ============================================================
 
 @router.get(
     "/requests",
-    response_model=list[AssistanceRequestRecord],
+    response_model=List[AssistanceRequestRecord],
 )
 def list_requests(
-    status: str | None = None,
-) -> list[AssistanceRequestRecord]:
-    """
-    Return assistance requests for the operations frontend.
-
-    Optional filter:
-    - status=pending|assigned|in_progress|resolved
-    """
-
+    status: Optional[str] = None,
+) -> List[AssistanceRequestRecord]:
     requests = get_all_requests()
 
     if status is not None:
-
         normalized = status.strip().lower()
-
         requests = [
-            request
-            for request in requests
-            if request.status == normalized
+            req for req in requests if req.status == normalized
         ]
 
     return requests
 
 
-
 # ============================================================
-# GET PENDING
+# GET PENDING REQUESTS
+# NOTE: Must be registered before /requests/{request_id}
 # ============================================================
 
 @router.get(
     "/requests/pending",
-    response_model=list[AssistanceRequestRecord],
+    response_model=List[AssistanceRequestRecord],
 )
 def pending_requests():
-
     return get_pending_requests()
 
 
-
 # ============================================================
-# GET REQUEST
+# GET REQUEST BY ID
 # ============================================================
 
 @router.get(
@@ -307,15 +279,11 @@ def pending_requests():
 def read_request(
     request_id: str,
 ):
-
-    return _get_request_or_404(
-        request_id
-    )
-
+    return _get_request_or_404(request_id)
 
 
 # ============================================================
-# MATCH REQUEST
+# MATCH REQUEST WITH RESPONDER
 # ============================================================
 
 @router.post(
@@ -325,114 +293,64 @@ def read_request(
 def match_request(
     request_id: str,
 ):
-
-    request = _get_request_or_404(
-        request_id
-    )
-
-
+    request = _get_request_or_404(request_id)
 
     if request.status != "pending":
-
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Only pending requests can be matched."
-            ),
+            detail="Only pending requests can be matched.",
         )
 
-
-
-    volunteers = get_available_volunteers(
-        request.zone_id
-    )
-
-
+    volunteers = get_available_volunteers(request.zone_id)
     if not volunteers:
-
         raise HTTPException(
             status_code=404,
-            detail=(
-                "No available responders found in this zone."
-            ),
+            detail="No available responders found in this zone.",
         )
-
-
 
     volunteer = match_volunteer(
         request=request,
         volunteers=volunteers,
     )
 
-
-
     if volunteer is None:
-
-        if _requires_trained_responder(
-            request
-        ):
-
+        if _requires_trained_responder(request):
             raise HTTPException(
                 status_code=404,
-                detail=(
-                    "No qualified trained responder "
-                    "is currently available."
-                ),
+                detail="No qualified trained responder is currently available.",
             )
-
-
         raise HTTPException(
             status_code=404,
-            detail=(
-                "No qualified volunteer matches "
-                "the required capabilities."
-            ),
+            detail="No qualified volunteer matches the required capabilities.",
         )
-
-
 
     assigned = assign_request(
         request_id=request.request_id,
         volunteer_id=volunteer.volunteer_id,
     )
 
-
-
     if assigned is None:
-
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Request assignment failed."
-            ),
+            detail="Request assignment failed.",
         )
-
-
 
     updated = set_volunteer_availability(
         volunteer_id=volunteer.volunteer_id,
         available=False,
     )
 
-
-
     if updated is None:
-
         raise HTTPException(
             status_code=500,
-            detail=(
-                "Responder availability update failed."
-            ),
+            detail="Responder availability update failed.",
         )
-
-
 
     return assigned
 
 
-
 # ============================================================
-# START REQUEST
+# START REQUEST WORKFLOW
 # ============================================================
 
 @router.post(
@@ -442,69 +360,39 @@ def match_request(
 def start_assistance_request(
     request_id: str,
 ):
-
-    request = _get_request_or_404(
-        request_id
-    )
-
+    request = _get_request_or_404(request_id)
 
     if request.status != "assigned":
-
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Only assigned requests can be started."
-            ),
+            detail="Only assigned requests can be started.",
         )
-
 
     if not request.assigned_volunteer_id:
-
         raise HTTPException(
             status_code=409,
-            detail=(
-                "No responder assigned."
-            ),
+            detail="No responder assigned.",
         )
 
-
-    volunteer = get_volunteer(
-        request.assigned_volunteer_id
-    )
-
-
+    volunteer = get_volunteer(request.assigned_volunteer_id)
     if volunteer is None:
-
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Assigned responder not found."
-            ),
+            detail="Assigned responder not found.",
         )
 
-
-
-    started = start_request(
-        request_id
-    )
-
-
+    started = start_request(request_id)
     if started is None:
-
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Request could not be started."
-            ),
+            detail="Request could not be started.",
         )
-
 
     return started
 
 
-
 # ============================================================
-# RESOLVE REQUEST
+# RESOLVE REQUEST WORKFLOW
 # ============================================================
 
 @router.post(
@@ -514,85 +402,44 @@ def start_assistance_request(
 def resolve_assistance_request(
     request_id: str,
 ):
-
-    request = _get_request_or_404(
-        request_id
-    )
-
+    request = _get_request_or_404(request_id)
 
     if request.status != "in_progress":
-
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Only active requests can be resolved."
-            ),
+            detail="Only active requests can be resolved.",
         )
-
 
     volunteer_id = request.assigned_volunteer_id
-
-
     if not volunteer_id:
-
         raise HTTPException(
             status_code=409,
-            detail=(
-                "No responder assigned."
-            ),
+            detail="No responder assigned.",
         )
 
-
-
-    volunteer = get_volunteer(
-        volunteer_id
-    )
-
-
+    volunteer = get_volunteer(volunteer_id)
     if volunteer is None:
-
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Assigned responder not found."
-            ),
+            detail="Assigned responder not found.",
         )
 
-
-
-    resolved = resolve_request(
-        request_id
-    )
-
-
+    resolved = resolve_request(request_id)
     if resolved is None:
-
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Request could not be resolved."
-            ),
+            detail="Request could not be resolved.",
         )
-
-
 
     released = set_volunteer_availability(
         volunteer_id=volunteer_id,
         available=True,
     )
 
-
-
     if released is None:
-
         raise HTTPException(
             status_code=500,
-            detail=(
-                "Responder availability "
-                "could not be restored."
-            ),
+            detail="Responder availability could not be restored.",
         )
-
-
 
     return resolved

@@ -1,17 +1,11 @@
+from datetime import datetime, timezone
 
-from datetime import datetime, timedelta, timezone
-
-from fastapi import APIRouter, HTTPException, Query
-
-from database.zones_repository import get_zone
-from database.alerts_repository import create_alert
+from fastapi import APIRouter, Query
 
 from app.schemas.risk import (
     FloodRiskInput,
     EarthquakeRiskInput,
     RiskAssessment,
-    RiskLocation,
-    ZoneRiskInput,
 )
 
 from app.schemas.decision import (
@@ -30,12 +24,6 @@ from app.schemas.accessibility import (
 
 from app.schemas.assistance import (
     AssistanceRequestRecord,
-)
-
-from app.services.flood_data_engine import (
-    get_rainfall_data,
-    parse_rainfall_data,
-    extract_flood_features,
 )
 
 from app.services.flood_risk import (
@@ -78,6 +66,10 @@ from app.services.persistence_service import (
     safe_persist_assessment,
 )
 
+from app.services.persistence_service import (
+    safe_persist_assessment,
+)
+
 from app.services.alert_normalizer import (
     normalize_alert,
 )
@@ -90,98 +82,14 @@ from app.services.sms.recipients import (
     get_sms_recipients_for_zone,
 )
 
+from database.alerts_repository import (
+    create_alert,
+)
 
 router = APIRouter(
     prefix="/pipeline",
     tags=["MONJED Pipeline"],
 )
-
-
-# ============================================================
-# RISK LOCATION
-# ============================================================
-
-def get_risk_location(
-    zone_id: str,
-) -> RiskLocation:
-    """
-    Load geographic coordinates from MongoDB.
-
-    Coordinates are stored as:
-
-        [longitude, latitude]
-
-    GeoJSON-style ordering is preserved in the database,
-    then converted into the RiskLocation model.
-    """
-
-    zone = get_zone(
-        zone_id
-    )
-
-    if not zone:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"Zone '{zone_id}' not found."
-            ),
-        )
-
-    coordinates = zone.get(
-        "coordinates"
-    )
-
-    if not coordinates:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Zone '{zone_id}' does not have coordinates."
-            ),
-        )
-
-    if not isinstance(
-        coordinates,
-        list,
-    ):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Invalid coordinates for zone '{zone_id}'."
-            ),
-        )
-
-    if len(coordinates) < 2:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Invalid coordinates for zone '{zone_id}'."
-            ),
-        )
-
-    try:
-        longitude = float(
-            coordinates[0]
-        )
-
-        latitude = float(
-            coordinates[1]
-        )
-
-    except (
-        TypeError,
-        ValueError,
-    ):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Invalid coordinates for zone '{zone_id}'."
-            ),
-        )
-
-    return RiskLocation(
-        latitude=latitude,
-        longitude=longitude,
-    )
 
 
 # ============================================================
@@ -301,6 +209,9 @@ def build_assistance_request(
 
     # --------------------------------------------------------
     # 3. IDENTIFY REPORTS SUPPORTING THE ESCALATION
+    #
+    # Currently people_trapped is the safety-critical signal
+    # that triggers human_review_required.
     # --------------------------------------------------------
 
     escalation_reports = [
@@ -309,10 +220,11 @@ def build_assistance_request(
         if report.analysis.people_trapped
     ]
 
-    # --------------------------------------------------------
-    # 4. FAIL SAFELY IF NO REPORT EXISTS
-    # --------------------------------------------------------
-
+    # Human review should currently have a corresponding
+    # trapped-person report.
+    #
+    # If none exists, fail safely instead of inventing
+    # location/report metadata.
     if not escalation_reports:
 
         print(
@@ -324,7 +236,7 @@ def build_assistance_request(
         return None
 
     # --------------------------------------------------------
-    # 5. USE MOST RECENT RELEVANT LOCATION
+    # 4. USE MOST RECENT RELEVANT LOCATION
     # --------------------------------------------------------
 
     latest_report = max(
@@ -335,7 +247,7 @@ def build_assistance_request(
     location = latest_report.location
 
     # --------------------------------------------------------
-    # 6. TRACE SOURCE REPORTS
+    # 5. TRACE SOURCE REPORTS
     # --------------------------------------------------------
 
     source_report_ids = [
@@ -343,6 +255,7 @@ def build_assistance_request(
         for report in escalation_reports
     ]
 
+    # Remove duplicates while preserving order.
     source_report_ids = list(
         dict.fromkeys(
             source_report_ids
@@ -350,7 +263,7 @@ def build_assistance_request(
     )
 
     # --------------------------------------------------------
-    # 7. ACCESSIBILITY METADATA
+    # 6. ACCESSIBILITY METADATA
     # --------------------------------------------------------
 
     normalized_accessibility_needs = list(
@@ -360,7 +273,7 @@ def build_assistance_request(
     )
 
     # --------------------------------------------------------
-    # 8. CREATE SAFE SYSTEM-GENERATED REQUEST
+    # 7. CREATE SAFE SYSTEM-GENERATED REQUEST
     # --------------------------------------------------------
 
     return create_decision_assistance_request(
@@ -438,6 +351,8 @@ def add_ai_alert(
 
     # ========================================================
     # 3. PROTECTED NORMALIZATION
+    #
+    # Backend values remain authoritative.
     # ========================================================
 
     normalized_alert = normalize_alert(
@@ -488,6 +403,9 @@ def add_ai_alert(
 
     # ========================================================
     # 7. DELIVERY
+    #
+    # Dispatcher itself respects notification_required.
+    # Dashboard always receives the update.
     # ========================================================
 
     try:
@@ -505,21 +423,28 @@ def add_ai_alert(
         )
 
         delivery_result = {
-            "dashboard": None,
+            "dashboard":
+                None,
 
-            "sms": [],
+            "sms":
+                [],
 
-            "voice": {
-                "success": False,
-                "error": type(exc).__name__,
-            },
+            "voice":
+                {
+                    "success":
+                        False,
 
-            "notification_required": bool(
-                normalized_alert.get(
-                    "notification_required",
-                    False,
-                )
-            ),
+                    "error":
+                        type(exc).__name__,
+                },
+
+            "notification_required":
+                bool(
+                    normalized_alert.get(
+                        "notification_required",
+                        False,
+                    )
+                ),
         }
 
     # ========================================================
@@ -557,7 +482,6 @@ def add_ai_alert(
 
         # Delivery already happened.
         # Database failure must not invalidate the assessment.
-
         print(
             "MONJED alert persistence warning: "
             f"{type(exc).__name__}: {exc}"
@@ -572,8 +496,7 @@ def add_ai_alert(
             "delivery": delivery_result,
         }
     )
-
-
+    
 # ============================================================
 # FLOOD PIPELINE
 # ============================================================
@@ -583,203 +506,54 @@ def add_ai_alert(
     response_model=MonjedAssessment,
 )
 def flood_pipeline(
-    data: ZoneRiskInput,
+    data: FloodRiskInput,
     accessibility_needs: list[AccessibilityNeed] | None = Query(
         default=None
     ),
 ):
-    """
-    Flood assessment pipeline.
 
-    Client sends only:
+    # --------------------------------------------------------
+    # 1. SCIENTIFIC RISK ENGINE
+    # --------------------------------------------------------
 
-        {
-            "zone_id": "..."
-        }
-
-    Backend flow:
-
-        zone_id
-            ->
-        MongoDB zone
-            ->
-        latitude + longitude
-            ->
-        NASA POWER
-            ->
-        rainfall features
-            ->
-        FloodRiskInput
-            ->
-        flood_risk.py
-            ->
-        RiskAssessment
-            ->
-        Decision / Accessibility / Assistance / AI / Alerts
-    """
-
-    # ========================================================
-    # 1. GET ZONE LOCATION FROM MONGODB
-    # ========================================================
-
-    location = get_risk_location(
-        data.zone_id
-    )
-
-    # ========================================================
-    # 2. BUILD NASA POWER DATE RANGE
-    # ========================================================
-
-    end_date = datetime.now(
-        timezone.utc
-    ).date()
-
-    start_date = (
-        end_date
-        - timedelta(days=2)
-    )
-
-    # ========================================================
-    # 3. GET RAINFALL DATA FROM NASA POWER
-    # ========================================================
-
-    rainfall_response = get_rainfall_data(
-        latitude=location.latitude,
-        longitude=location.longitude,
-        start_date=start_date.isoformat(),
-        end_date=end_date.isoformat(),
-    )
-
-    if not rainfall_response.get(
-        "available"
-    ):
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "NASA POWER rainfall data "
-                "is currently unavailable."
-            ),
+    risk_score, risk_level, reasons, confidence = (
+        calculate_flood_risk(
+            data
         )
-
-    # ========================================================
-    # 4. PARSE NASA POWER RESPONSE
-    # ========================================================
-
-    rainfall_data = parse_rainfall_data(
-        rainfall_response
     )
-
-    if not rainfall_data:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "No rainfall data was returned "
-                "by NASA POWER."
-            ),
-        )
-
-    # ========================================================
-    # 5. EXTRACT FLOOD FEATURES
-    # ========================================================
-
-    flood_features = extract_flood_features(
-        rainfall_data
-    )
-
-    if not flood_features.get(
-        "data_available"
-    ):
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Flood rainfall features "
-                "are unavailable."
-            ),
-        )
-
-    # ========================================================
-    # 6. BUILD INTERNAL FLOOD RISK INPUT
-    # ========================================================
-
-    flood_input = FloodRiskInput(
-        zone_id=data.zone_id,
-
-        rainfall_24h_mm=(
-            flood_features[
-                "rainfall_24h_mm"
-            ]
-        ),
-
-        previous_rainfall_24h_mm=(
-            flood_features[
-                "previous_rainfall_24h_mm"
-            ]
-        ),
-
-        data_age_minutes=(
-            flood_features[
-                "data_age_minutes"
-            ] or 0
-        ),
-    )
-
-    # ========================================================
-    # 7. CALCULATE FLOOD RISK
-    # ========================================================
-
-    (
-        risk_score,
-        risk_level,
-        reasons,
-        confidence,
-    ) = calculate_flood_risk(
-        flood_input
-    )
-
-    # ========================================================
-    # 8. BUILD RISK ASSESSMENT
-    # ========================================================
 
     risk_assessment = RiskAssessment(
         hazard="flood",
-
         zone_id=data.zone_id,
-
         risk_score=risk_score,
-
         risk_level=risk_level,
-
         confidence=confidence,
-
         reasons=reasons,
-
-        location=location,
-
         evaluated_at=datetime.now(
             timezone.utc
         ),
     )
 
-    # ========================================================
-    # 9. OPERATIONAL DECISION ENGINE
-    # ========================================================
+    # --------------------------------------------------------
+    # 2. OPERATIONAL DECISION ENGINE
+    # --------------------------------------------------------
 
     decision = build_final_decision(
         risk_assessment
     )
 
-    # ========================================================
-    # 10. ACCESSIBILITY LAYER
-    # ========================================================
+    # --------------------------------------------------------
+    # 3. ACCESSIBILITY LAYER
+    # --------------------------------------------------------
 
     accessible_action = build_accessible_action(
         decision,
         accessibility_needs,
     )
 
-    # ========================================================
-    # 11. HUMAN ASSISTANCE ESCALATION
-    # ========================================================
+    # --------------------------------------------------------
+    # 4. HUMAN ASSISTANCE ESCALATION
+    # --------------------------------------------------------
 
     assistance_request = (
         build_assistance_request(
@@ -790,27 +564,20 @@ def flood_pipeline(
         )
     )
 
-    # ========================================================
-    # 12. MONJED ASSESSMENT
-    # ========================================================
+    # --------------------------------------------------------
+    # 5. MONJED ASSESSMENT
+    # --------------------------------------------------------
 
     assessment = MonjedAssessment(
         risk=risk_assessment,
-
         decision=decision,
-
-        accessible_action=(
-            accessible_action
-        ),
-
-        assistance_request=(
-            assistance_request
-        ),
+        accessible_action=accessible_action,
+        assistance_request=assistance_request,
     )
 
-    # ========================================================
-    # 13. AI COMMUNICATION + ALERT + DELIVERY
-    # ========================================================
+    # --------------------------------------------------------
+    # 6. AI COMMUNICATION LAYER
+    # --------------------------------------------------------
 
     return add_ai_alert(
         assessment,
@@ -832,81 +599,49 @@ def earthquake_pipeline(
         default=None
     ),
 ):
-    """
-    Earthquake pipeline.
 
-    The earthquake pipeline remains on the existing
-    EarthquakeRiskInput flow for now.
-
-    USGS integration can be added separately without
-    changing the decision / accessibility / alert layers.
-    """
-
-    # ========================================================
+    # --------------------------------------------------------
     # 1. SCIENTIFIC RISK / IMPACT ENGINE
-    # ========================================================
+    # --------------------------------------------------------
 
-    (
-        risk_score,
-        risk_level,
-        reasons,
-        confidence,
-    ) = calculate_earthquake_risk(
-        data
+    risk_score, risk_level, reasons, confidence = (
+        calculate_earthquake_risk(
+            data
+        )
     )
-
-    # ========================================================
-    # 2. GET ZONE LOCATION
-    # ========================================================
-
-    location = get_risk_location(
-        data.zone_id
-    )
-
-    # ========================================================
-    # 3. BUILD RISK ASSESSMENT
-    # ========================================================
 
     risk_assessment = RiskAssessment(
         hazard="earthquake",
-
         zone_id=data.zone_id,
-
         risk_score=risk_score,
-
         risk_level=risk_level,
-
         confidence=confidence,
-
         reasons=reasons,
-
-        location=location,
-
         evaluated_at=datetime.now(
             timezone.utc
         ),
     )
 
-    # ========================================================
-    # 4. OPERATIONAL DECISION ENGINE
-    # ========================================================
+    # --------------------------------------------------------
+    # 2. OPERATIONAL DECISION ENGINE
+    # --------------------------------------------------------
 
     decision = build_final_decision(
         risk_assessment
     )
 
-    # ========================================================
-    # 5. ACCESSIBILITY LAYER
-    # ========================================================
+    # --------------------------------------------------------
+    # 3. ACCESSIBILITY LAYER
+    # --------------------------------------------------------
 
     accessible_action = build_accessible_action(
         decision,
         accessibility_needs,
     )
 
-    # ========================================================
-    # 6. HUMAN ASSISTANCE ESCALATION
-    # ========================================================
+    # --------------------------------------------------------
+    # 4. HUMAN ASSISTANCE ESCALATION
+    # --------------------------------------------------------
 
     assistance_request = (
         build_assistance_request(
@@ -917,31 +652,22 @@ def earthquake_pipeline(
         )
     )
 
-    # ========================================================
-    # 7. MONJED ASSESSMENT
-    # ========================================================
+    # --------------------------------------------------------
+    # 5. MONJED ASSESSMENT
+    # --------------------------------------------------------
 
     assessment = MonjedAssessment(
         risk=risk_assessment,
-
         decision=decision,
-
-        accessible_action=(
-            accessible_action
-        ),
-
-        assistance_request=(
-            assistance_request
-        ),
+        accessible_action=accessible_action,
+        assistance_request=assistance_request,
     )
 
-    # ========================================================
-    # 8. AI COMMUNICATION + ALERT + DELIVERY
-    # ========================================================
+    # --------------------------------------------------------
+    # 6. AI COMMUNICATION LAYER
+    # --------------------------------------------------------
 
     return add_ai_alert(
         assessment,
         accessible_action,
     )
-
-

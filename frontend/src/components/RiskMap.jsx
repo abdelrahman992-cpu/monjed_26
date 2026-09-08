@@ -50,8 +50,7 @@ function FlyToSelected({ country }) {
 }
 
 /**
- * Clean OpenStreetMap basemap + real country borders tinted by risk.
- * Free — no API key.
+ * Interactive basemap with country borders tinted by risk.
  */
 export default function RiskMap({
   countries,

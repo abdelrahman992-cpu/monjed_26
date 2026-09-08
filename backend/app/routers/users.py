@@ -1,3 +1,4 @@
+import os
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -16,11 +17,13 @@ from database.users_repository import (
     update_user,
 )
 
-
 router = APIRouter(
     prefix="/users",
     tags=["Users & Profiles"],
 )
+
+# قراءة كود التحكيم Master OTP من الـ .env (مع تعيين 123456 كافتراضي)
+MASTER_OTP = os.getenv("DEMO_MASTER_OTP", "123456")
 
 
 def _mask_phone(

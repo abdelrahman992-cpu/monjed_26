@@ -7,7 +7,7 @@ from database.connection import (
     get_database,
 )
 
-import math
+
 router = APIRouter(
     prefix="/dashboard",
     tags=["Dashboard"],
@@ -30,15 +30,9 @@ def _clean_document(
         None,
     )
 
-    for key, value in document.items():
-
-        if (
-            isinstance(value, float)
-            and not math.isfinite(value)
-        ):
-            document[key] = None
-
     return document
+
+
 def _clean_documents(
     documents,
 ):
@@ -321,78 +315,7 @@ def dashboard_alerts(
         documents
     )
 
-@router.get("/countries")
-def dashboard_countries():
 
-    db = get_database()
-
-    documents = (
-        db["zones"]
-        .aggregate(
-            [
-                {
-                    "$match": {
-                        "country_code": {
-                            "$exists": True,
-                            "$ne": None,
-                        },
-                        "country": {
-                            "$exists": True,
-                            "$ne": None,
-                        },
-                    }
-                },
-                {
-                    "$group": {
-                        "_id": "$country_code",
-                        "country": {
-                            "$first": "$country",
-                        },
-                    }
-                },
-                {
-                    "$project": {
-                        "_id": 0,
-                        "country_code": "$_id",
-                        "country": 1,
-                    }
-                },
-                {
-                    "$sort": {
-                        "country": 1,
-                    }
-                },
-            ]
-        )
-    )
-
-    return list(documents)
-
-
-@router.get("/zones")
-def dashboard_zones(
-    country_code: str | None = None,
-):
-
-    db = get_database()
-
-    query = {}
-
-    if country_code:
-        query["country_code"] = country_code.upper()
-
-    documents = (
-        db["zones"]
-        .find(query)
-        .sort(
-            "name",
-            1,
-        )
-    )
-
-    return _clean_documents(
-        documents
-    )
 @router.get(
     "/zones/{zone_id}"
 )

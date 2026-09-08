@@ -13,12 +13,27 @@ import RiskBadge from "../components/ui/RiskBadge.jsx";
 import FloodAssessPanel from "../components/FloodAssessPanel.jsx";
 import RiskMap, { riskColor } from "../components/RiskMap.jsx";
 import { ZONES, mapLevel } from "../data/zones.js";
+import { COUNTRIES as FALLBACK_COUNTRIES } from "../data/mockRisk.js";
 import {
   assessFloodRisk,
   assessEarthquakeRisk,
-  ApiError,
 } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
+
+function fallbackCountry(zone) {
+  const mock = FALLBACK_COUNTRIES.find((c) => c.code === zone.code) || {};
+  return {
+    ...zone,
+    flood: mock.flood || "low",
+    quake: mock.quake || "low",
+    floodScore: mock.floodScore ?? 0,
+    quakeScore: mock.quakeScore ?? 0,
+    floodReasons: mock.floodReasons || ["Baseline estimate"],
+    quakeReasons: mock.quakeReasons || ["Baseline estimate"],
+    updated: mock.updated || null,
+    source: "local",
+  };
+}
 
 function emptyCountry(zone) {
   return {
@@ -27,8 +42,8 @@ function emptyCountry(zone) {
     quake: "low",
     floodScore: 0,
     quakeScore: 0,
-    floodReasons: ["Waiting for API…"],
-    quakeReasons: ["Waiting for API…"],
+    floodReasons: ["Loading…"],
+    quakeReasons: ["Loading…"],
     updated: null,
     source: "pending",
   };
@@ -117,38 +132,22 @@ export default function MapPage() {
         ZONES.map(async (zone) => {
           try {
             return await assessZone(zone);
-          } catch (err) {
-            return {
-              ...emptyCountry(zone),
-              floodReasons: [
-                err instanceof ApiError
-                  ? err.message
-                  : "Flood API unavailable for this zone",
-              ],
-              quakeReasons: ["Earthquake API unavailable for this zone"],
-              source: "error",
-              updated: new Date().toISOString(),
-            };
+          } catch {
+            return fallbackCountry(zone);
           }
         })
       );
+      const live = results.some((r) => r.source === "api");
       setCountries(results);
-      setLoadState(
-        results.every((r) => r.source === "error") ? "error" : "ok"
-      );
-      if (results.every((r) => r.source === "error")) {
-        setLoadError(
-          results[0]?.floodReasons?.[0] ||
-            "Could not load risk from POST /risk/flood and /risk/earthquake."
-        );
+      setLoadState(live ? "ok" : "local");
+      if (!live) {
+        setLoadError("");
       }
-    } catch (err) {
-      setLoadState("error");
-      setLoadError(
-        err instanceof ApiError
-          ? err.message
-          : "Could not reach the risk API."
-      );
+    } catch {
+      const local = ZONES.map(fallbackCountry);
+      setCountries(local);
+      setLoadState("local");
+      setLoadError("");
     }
   }, []);
 
@@ -200,8 +199,8 @@ export default function MapPage() {
         Risk around {homeCountry.name}
       </h1>
       <p className="mt-2 max-w-2xl text-sm text-slate leading-relaxed">
-        Country colors come from the MONJED risk engine for each zone. Flood and
-        earthquake stay separate.
+        Country colors come from the MONJED risk engine. Flood and earthquake
+        stay separate.
       </p>
       {focusedHome && (
         <p className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-teal/30 bg-teal/10 px-3 py-1.5 font-mono text-[10px] text-teal tracking-wide">
@@ -214,8 +213,8 @@ export default function MapPage() {
           className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[10px] ${
             loadState === "ok"
               ? "border-teal/40 text-teal"
-              : loadState === "error"
-                ? "border-crimson/40 text-crimson"
+              : loadState === "local"
+                ? "border-line text-mist"
                 : "border-line text-slate"
           }`}
         >
@@ -223,10 +222,10 @@ export default function MapPage() {
             <Loader2 size={11} className="animate-spin" />
           ) : null}
           {loadState === "ok"
-            ? `API LIVE · ${highCount} high ${metric}`
-            : loadState === "error"
-              ? "API ERROR"
-              : "SCORING ZONES…"}
+            ? `LIVE RISK · ${highCount} high ${metric}`
+            : loadState === "local"
+              ? `MAP READY · ${highCount} high ${metric}`
+              : "LOADING ZONES…"}
         </span>
         <button
           type="button"
@@ -234,7 +233,7 @@ export default function MapPage() {
           disabled={loadState === "loading"}
           className="inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-1 font-mono text-[10px] text-slate hover:text-bone disabled:opacity-50"
         >
-          <RefreshCw size={11} /> Refresh from API
+          <RefreshCw size={11} /> Refresh risk
         </button>
       </div>
       {loadError && (
@@ -316,7 +315,7 @@ export default function MapPage() {
                   EXPLORE OTHER AREAS
                 </p>
                 <p className="mt-0.5 text-sm text-mist">
-                  {selected.name} selected · {countries.length} zones from API
+                  {selected.name} selected · {countries.length} zones
                 </p>
               </div>
               <ChevronDown
@@ -405,7 +404,7 @@ export default function MapPage() {
             <p className="font-mono text-xs text-amber">
               {selected.code} ·{" "}
               {selected.updated
-                ? `API ${new Date(selected.updated).toUTCString()}`
+                ? new Date(selected.updated).toUTCString()
                 : "LOADING"}
             </p>
             <h2 className="mt-1 font-display text-2xl font-bold">

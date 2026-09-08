@@ -24,7 +24,7 @@ IMPORTANT:
 """
 
 
-from backend.app.services.voice.tts_provider import (
+from app.services.voice.tts_provider import (
     generate_voice_audio,
 )
 

@@ -11,6 +11,7 @@ from app.services.sms.config import (
     AFRICAS_TALKING_USERNAME,
 )
 
+from database.connection import get_database 
 
 def _sandbox_fallback_recipients() -> list[dict]:
     """
@@ -52,34 +53,30 @@ def get_sms_recipients_for_zone(
 
     recipients: list[dict] = []
 
-    try:
-        from database.users_repository import (
-            get_alert_recipients_by_zone,
-        )
+    # recipients.py
+# يفضل نقل الاستيراد للأعلى إذا لم يسبب Circular Import
+try:
+    from database.users_repository import get_alert_recipients_by_zone
+except ImportError:
+    get_alert_recipients_by_zone = None
 
-        recipients = get_alert_recipients_by_zone(
-            normalized_zone
-        )
+def get_sms_recipients_for_zone(zone_id: str) -> list[dict]:
+    normalized_zone = str(zone_id or "").strip()
+    if not normalized_zone:
+        return []
 
-    except Exception as exc:
-
-        print(
-            "MONJED recipient selection warning: "
-            f"{type(exc).__name__}: {exc}"
-        )
-
-        recipients = []
+    recipients = []
+    if get_alert_recipients_by_zone:
+        try:
+            recipients = get_alert_recipients_by_zone(normalized_zone)
+        except Exception as exc:
+            print(f"MONJED recipient selection warning: {type(exc).__name__}: {exc}")
 
     if recipients:
         return recipients
 
     fallback = _sandbox_fallback_recipients()
-
     if fallback:
-
-        print(
-            "MONJED SMS: using sandbox fallback recipients "
-            f"for zone {normalized_zone}."
-        )
+        print(f"MONJED SMS: using sandbox fallback recipients for zone {normalized_zone}.")
 
     return fallback

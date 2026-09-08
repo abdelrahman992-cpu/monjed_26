@@ -1,16 +1,24 @@
 ﻿from typing import Literal
-
 from pydantic import BaseModel, Field, field_validator
-
 
 RegisterRole = Literal[
     "citizen",
     "volunteer",
+    "admin",
+]
+
+# تعريف المهارات المقبولة بالظبط كما يطلبها الـ Validation
+SkillType = Literal[
+    "evacuation",
+    "transportation",
+    "mobility_assistance",
+    "medical_support",
+    "rescue_support",
+    "general_support",
 ]
 
 
 def _normalize_optional_phone(value):
-    """Treat blank / spaced phone as missing; keep E.164 digits with +."""
     if value is None:
         return None
     if not isinstance(value, str):
@@ -40,7 +48,6 @@ def _normalize_optional_text(value):
 
 
 class RegisterRequest(BaseModel):
-
     display_name: str = Field(
         ...,
         min_length=2,
@@ -88,6 +95,11 @@ class RegisterRequest(BaseModel):
         default_factory=list
     )
 
+    # إضافة حقل المهارات لتفادي خطأ Validation
+    skills: list[SkillType] = Field(
+        default_factory=list
+    )
+
     notification_consent: bool = True
 
     @field_validator("phone", mode="before")
@@ -116,8 +128,6 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-
-    # Email or international phone number.
     identifier: str = Field(
         ...,
         min_length=3,
@@ -139,28 +149,17 @@ class LoginRequest(BaseModel):
 
 
 class AuthUserResponse(BaseModel):
-
     user_id: str
-
     display_name: str | None = None
-
     role: str
-
     email: str | None = None
-
     phone: str | None = None
-
     zone_id: str | None = None
-
     country: str | None = None
-
     preferred_language: str = "en"
 
 
 class AuthResponse(BaseModel):
-
     access_token: str
-
     token_type: str = "bearer"
-
     user: AuthUserResponse

@@ -471,17 +471,44 @@ export default function UserProfileMenu() {
                 </button>
               </>
             ) : (
-              <button
-                type="button"
-                className="w-full px-3.5 py-2.5 text-left text-sm hover:bg-raised flex items-center gap-2"
-                onClick={() => {
-                  setOpen(false);
-                  navigate("/login");
-                }}
-              >
-                <LogIn size={15} className="text-amber" />
-                Sign in
-              </button>
+              <>
+                <p className="px-3.5 pt-1.5 pb-1 font-mono text-[10px] tracking-[0.14em] text-slate uppercase">
+                  Sign in as
+                </p>
+                <button
+                  type="button"
+                  className="w-full px-3.5 py-2.5 text-left text-sm hover:bg-raised flex items-center gap-2"
+                  onClick={() => {
+                    setOpen(false);
+                    navigate("/login");
+                  }}
+                >
+                  <LogIn size={15} className="text-amber" />
+                  Member
+                </button>
+                <button
+                  type="button"
+                  className="w-full px-3.5 py-2.5 text-left text-sm hover:bg-raised flex items-center gap-2"
+                  onClick={() => {
+                    setOpen(false);
+                    navigate("/volunteer");
+                  }}
+                >
+                  <UserRound size={15} className="text-amber" />
+                  Volunteer
+                </button>
+                <button
+                  type="button"
+                  className="w-full border-t border-line px-3.5 py-2.5 text-left text-sm hover:bg-raised flex items-center gap-2"
+                  onClick={() => {
+                    setOpen(false);
+                    navigate("/volunteer", { state: { mode: "staff" } });
+                  }}
+                >
+                  <LogIn size={15} className="text-amber" />
+                  Staff
+                </button>
+              </>
             )}
           </div>
         )}

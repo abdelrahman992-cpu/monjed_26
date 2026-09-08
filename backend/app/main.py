@@ -1,6 +1,7 @@
 import sys
+import os
 from pathlib import Path
-from app.routers.zones import router as zones_router
+
 from dotenv import load_dotenv
 
 # Repo root so top-level AI/ package imports resolve when running from backend/.
@@ -24,10 +25,16 @@ from app.routers.pipeline import router as pipeline_router
 from app.routers.assistance import router as assistance_router
 from app.routers.accessibility import router as accessibility_router
 from app.routers.dashboard import router as dashboard_router
-from app.routers.risk import router as risk_router
+from app.routers.rescue_robot import router as rescue_robot_router
+
 from app.routers import users
 
 from app.routers import auth
+
+from database.connection import (
+    DB_NAME,
+    MONGO_URI,
+)
 
 app = FastAPI(
     title="MONJED API",
@@ -38,26 +45,42 @@ app = FastAPI(
     version="0.1.0",
 )
 
-app.include_router(zones_router)
+
+@app.on_event("startup")
+def log_startup_config():
+    print(f"MONJED API using MongoDB: {MONGO_URI} / {DB_NAME}")
+
+
 # ============================================================
 # CORS
 # ============================================================
 
 # Local frontend development origins.
-# Vite usually uses port 5173.
-# React/Next development may use port 3000.
-allowed_origins = [
+# Browsers treat localhost and 127.0.0.1 as different origins.
+_default_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:5174",
+    "http://127.0.0.1:5174",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
+
+_extra_origins = os.getenv("CORS_ORIGINS", "")
+allowed_origins = _default_origins + [
+    origin.strip()
+    for origin in _extra_origins.split(",")
+    if origin.strip()
+]
+
+# Allow deployed frontends on Render and Vercel.
+_deployed_origin_regex = r"https://(.*\.onrender\.com|.*\.vercel\.app)"
 
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=_deployed_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -67,7 +90,7 @@ app.add_middleware(
 # ============================================================
 # ROUTERS
 # ============================================================
-app.include_router(risk_router)
+
 app.include_router(flood_router)
 app.include_router(earthquake_router)
 app.include_router(community_reports_router)
@@ -77,6 +100,7 @@ app.include_router(assistance_router)
 app.include_router(accessibility_router)
 app.include_router(test_ui_router)
 app.include_router(dashboard_router)
+app.include_router(rescue_robot_router)
 app.include_router(users.router)
 app.include_router(auth.router)
 

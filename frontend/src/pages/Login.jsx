@@ -1,15 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Phone, MapPin, UserRound, Mail } from "lucide-react";
+import { Phone, MapPin, UserRound, Mail, KeyRound } from "lucide-react";
 import { useAuth } from "../lib/auth.jsx";
 import { useNavLoad } from "../components/PageLoader.jsx";
 import TextField from "../components/ui/TextField.jsx";
 import PasswordField from "../components/ui/PasswordField.jsx";
 import { ZONES } from "../data/zones.js";
-import { ApiError } from "../lib/api.js";
+import { ApiError, verifyOtp } from "../lib/api.js";
+
+function homeForRole(role, fallback = "/map") {
+  if (role === "admin") return "/admin";
+  if (role === "volunteer") return "/volunteer/dashboard";
+  return fallback;
+}
 
 export default function LoginPage() {
-  const { isSignedIn, session, loginAsUser, signupUser } = useAuth();
+  const { isSignedIn, session, loginAsUser, signupUser, setSession } =
+    useAuth();
   const { go } = useNavLoad();
   const location = useLocation();
   const redirected = useRef(false);
@@ -17,19 +24,25 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [countryCode, setCountryCode] = useState("KE");
   const [busy, setBusy] = useState(false);
+  const [pendingOtpUser, setPendingOtpUser] = useState(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [otpIntent, setOtpIntent] = useState("user"); // user | signup
 
   const afterLogin = location.state?.from || "/map";
 
   useEffect(() => {
     if (redirected.current || !isSignedIn) return;
     redirected.current = true;
-    if (session?.role === "admin") {
-      go("/admin", { replace: true, label: "Opening operations…" });
-    } else if (session?.role === "volunteer") {
-      go("/volunteer/dashboard", { replace: true, label: "Opening dashboard…" });
-    } else {
-      go(afterLogin, { replace: true, label: "Opening your map…" });
-    }
+    const dest = homeForRole(session?.role, afterLogin);
+    go(dest, {
+      replace: true,
+      label:
+        dest === "/admin"
+          ? "Opening operations…"
+          : dest === "/volunteer/dashboard"
+            ? "Opening dashboard…"
+            : "Opening your map…",
+    });
   }, [isSignedIn, session, go, afterLogin]);
 
   async function onLogin(e) {
@@ -38,13 +51,32 @@ export default function LoginPage() {
     setBusy(true);
     const data = new FormData(e.target);
     try {
-      await loginAsUser(
+      const res = await loginAsUser(
         String(data.get("identifier") || "").trim(),
         String(data.get("password") || "")
       );
-      go(afterLogin, { label: "Opening your map…" });
+      if (res?.requires_otp) {
+        setPendingOtpUser({
+          userId: res.user_id || res.user?.user_id,
+          email: res.email || String(data.get("identifier") || "").trim(),
+        });
+        setOtpIntent("user");
+        setMode("verify_otp");
+        return;
+      }
+      const dest = homeForRole(res?.role, afterLogin);
+      go(dest, {
+        label:
+          dest === "/admin"
+            ? "Opening operations…"
+            : dest === "/volunteer/dashboard"
+              ? "Opening dashboard…"
+              : "Opening your map…",
+      });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : err.message || "Login failed");
+      setError(
+        err instanceof ApiError ? err.message : err.message || "Login failed"
+      );
     } finally {
       setBusy(false);
     }
@@ -57,7 +89,7 @@ export default function LoginPage() {
     const data = new FormData(e.target);
     const country = ZONES.find((c) => c.code === countryCode);
     try {
-      await signupUser({
+      const res = await signupUser({
         name: String(data.get("name") || "").trim(),
         email: String(data.get("email") || "").trim(),
         phone: String(data.get("phone") || "").trim(),
@@ -67,9 +99,51 @@ export default function LoginPage() {
         zone: String(data.get("zone") || "").trim(),
         notification_consent: true,
       });
+      if (res?.requires_otp) {
+        setPendingOtpUser({
+          userId: res.user_id || res.user?.user_id,
+          email: res.email || String(data.get("email") || "").trim(),
+        });
+        setOtpIntent("signup");
+        setMode("verify_otp");
+        return;
+      }
       go(afterLogin, { label: "Opening your map…" });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : err.message || "Signup failed");
+      setError(
+        err instanceof ApiError ? err.message : err.message || "Signup failed"
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onVerifyOtp(e) {
+    e.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      const res = await verifyOtp({
+        user_id: pendingOtpUser?.userId,
+        code: otpCode.trim(),
+      });
+      if (setSession) setSession(res);
+      const role = res?.user?.role;
+      const dest = homeForRole(role, afterLogin);
+      go(dest, {
+        label:
+          dest === "/admin"
+            ? "Opening operations…"
+            : dest === "/volunteer/dashboard"
+              ? "Opening dashboard…"
+              : "Opening your map…",
+      });
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : err.message || "Invalid OTP code"
+      );
     } finally {
       setBusy(false);
     }
@@ -78,15 +152,21 @@ export default function LoginPage() {
   return (
     <div className="mx-auto max-w-md px-5 sm:px-8 py-10 pb-16">
       <p className="font-mono text-[11px] tracking-[0.18em] text-amber">
-        SIGN IN · ALERTS READY
+        {mode === "verify_otp" ? "VERIFICATION REQUIRED" : "SIGN IN · ALERTS READY"}
       </p>
       <h1 className="mt-3 font-display text-3xl font-bold">
-        {mode === "login" ? "Log in" : "Create your account"}
+        {mode === "login"
+          ? "Log in"
+          : mode === "verify_otp"
+            ? "Verify email OTP"
+            : "Create your account"}
       </h1>
       <p className="mt-3 text-sm text-slate leading-relaxed">
         {mode === "login"
           ? "Log in with the email or phone you registered with to open the map, report, and request help."
-          : "Register with email and country so we can show risk for your area — and send alerts when you opt in."}
+          : mode === "verify_otp"
+            ? `Enter the 6-digit code sent to ${pendingOtpUser?.email || "your email"} or check server logs.`
+            : "Register with email and country so we can show risk for your area — and send alerts when you opt in."}
       </p>
 
       {error && (
@@ -95,7 +175,42 @@ export default function LoginPage() {
         </p>
       )}
 
-      {mode === "login" ? (
+      {mode === "verify_otp" ? (
+        <>
+          <form onSubmit={onVerifyOtp} className="mt-6 space-y-4">
+            <TextField
+              name="otp_code"
+              label="6-Digit Verification Code"
+              icon={KeyRound}
+              required
+              maxLength={6}
+              placeholder="e.g. 849201"
+              value={otpCode}
+              onChange={(e) => setOtpCode(e.target.value)}
+            />
+            <button
+              type="submit"
+              disabled={busy || otpCode.trim().length < 6}
+              className="w-full rounded-md bg-amber px-4 py-2.5 text-sm font-semibold text-ink hover:bg-amber-bright transition-colors disabled:opacity-60"
+            >
+              {busy ? "Verifying…" : "Confirm & continue"}
+            </button>
+          </form>
+          <p className="mt-5 text-center text-sm text-slate">
+            <button
+              type="button"
+              onClick={() => {
+                setMode(otpIntent === "signup" ? "signup" : "login");
+                setOtpCode("");
+                setError("");
+              }}
+              className="text-amber hover:underline focus:outline-none font-medium"
+            >
+              {otpIntent === "signup" ? "Back to sign up" : "Back to login"}
+            </button>
+          </p>
+        </>
+      ) : mode === "login" ? (
         <>
           <form onSubmit={onLogin} className="mt-6 space-y-4">
             <TextField

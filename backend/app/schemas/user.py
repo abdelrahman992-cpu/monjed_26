@@ -1,7 +1,9 @@
-﻿from typing import Literal
-
+﻿from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
+# ============================================================
+# TYPES
+# ============================================================
 
 SupportedLanguage = Literal[
     "en",
@@ -18,7 +20,11 @@ AccessibilityNeed = Literal[
 ]
 
 
-def _normalize_optional_phone(value):
+# ============================================================
+# HELPERS
+# ============================================================
+
+def _normalize_optional_phone(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
     if not isinstance(value, str):
@@ -37,93 +43,90 @@ def _normalize_optional_phone(value):
     return cleaned
 
 
+# ============================================================
+# RESPONSES & SCHEMAS
+# ============================================================
+
 class UserProfileResponse(BaseModel):
     user_id: str
-    display_name: str | None = None
-    role: str | None = None
-    role_title: str | None = None
-    organization: str | None = None
-    work_email: str | None = None
+    display_name: Optional[str] = None
+    role: Optional[str] = None
+    role_title: Optional[str] = None
+    organization: Optional[str] = None
+    work_email: Optional[str] = None
 
     # Frontend receives only a masked phone number.
-    phone: str | None = None
+    phone: Optional[str] = None
 
-    zone_id: str | None = None
-    country: str | None = None
+    zone_id: Optional[str] = None
+    country: Optional[str] = None
     preferred_language: str = "en"
 
-    accessibility_needs: list[str] = Field(
-        default_factory=list
-    )
-
+    accessibility_needs: list[str] = Field(default_factory=list)
     notification_consent: bool = False
 
 
 class UserListItem(BaseModel):
     """Ops directory row — no passwords, phone masked."""
-
     user_id: str
-    display_name: str | None = None
-    role: str | None = None
-    email: str | None = None
-    phone: str | None = None
-    zone_id: str | None = None
-    country: str | None = None
+    display_name: Optional[str] = None
+    role: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    zone_id: Optional[str] = None
+    country: Optional[str] = None
     preferred_language: str = "en"
     notification_consent: bool = False
     sms_eligible: bool = False
 
 
 class UserProfileUpdate(BaseModel):
-    display_name: str | None = Field(
+    display_name: Optional[str] = Field(
         default=None,
         min_length=1,
         max_length=100,
     )
 
-    role_title: str | None = Field(
+    role_title: Optional[str] = Field(
         default=None,
         min_length=1,
         max_length=100,
     )
 
-    organization: str | None = Field(
+    organization: Optional[str] = Field(
         default=None,
         min_length=1,
         max_length=150,
     )
 
-    work_email: str | None = Field(
+    work_email: Optional[str] = Field(
         default=None,
         min_length=5,
         max_length=254,
         pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
     )
 
-    # International E.164 format.
-    # Supports Egypt +20, Kenya +254, and other countries.
-    phone: str | None = Field(
+    # International E.164 format (Supports +20, +254, etc.)
+    phone: Optional[str] = Field(
         default=None,
         pattern=r"^\+[1-9]\d{7,14}$",
     )
 
-    zone_id: str | None = Field(
+    zone_id: Optional[str] = Field(
         default=None,
         min_length=1,
         max_length=100,
     )
 
-    country: str | None = Field(
+    country: Optional[str] = Field(
         default=None,
         min_length=2,
         max_length=100,
     )
 
-    preferred_language: SupportedLanguage | None = None
-
-    accessibility_needs: list[AccessibilityNeed] | None = None
-
-    notification_consent: bool | None = None
+    preferred_language: Optional[SupportedLanguage] = None
+    accessibility_needs: Optional[list[AccessibilityNeed]] = None
+    notification_consent: Optional[bool] = None
 
     @field_validator("phone", mode="before")
     @classmethod

@@ -25,6 +25,7 @@ SKILL_MAPPING = {
     "evacuation": (
         "evacuation",
         "transportation",
+        "general_support",
     ),
 
     "transportation": (
@@ -33,6 +34,7 @@ SKILL_MAPPING = {
 
     "mobility_assistance": (
         "mobility_assistance",
+        "general_support",
     ),
 
     "medical_support": (
@@ -43,8 +45,14 @@ SKILL_MAPPING = {
         "rescue_support",
     ),
 
+    # Generic "Need help" — any capable volunteer in-zone can take it.
     "other": (
         "general_support",
+        "transportation",
+        "evacuation",
+        "mobility_assistance",
+        "medical_support",
+        "rescue_support",
     ),
 }
 
@@ -182,9 +190,9 @@ def is_qualified(
 
 
     if (
-        volunteer.zone_id.strip()
+        volunteer.zone_id.strip().upper()
         !=
-        request.zone_id.strip()
+        request.zone_id.strip().upper()
     ):
 
         return False

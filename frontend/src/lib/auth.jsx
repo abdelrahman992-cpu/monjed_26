@@ -18,6 +18,7 @@ import {
   updateUserProfile as apiUpdateUserProfile,
   toE164,
 } from "./api.js";
+import { resolvePlace, ZONE_DEFAULTS } from "../data/places.js";
 
 const AuthContext = createContext(null);
 
@@ -30,18 +31,90 @@ export function AuthProvider({ children }) {
       setSessionState(next);
     }
 
+    async function completeVolunteerRegistration(userId, profile, auth) {
+      const skillMap = {
+        "First aid": "medical_support",
+        Driving: "transportation",
+        "Boat / water rescue": "rescue_support",
+        Translation: "general_support",
+        Logistics: "general_support",
+        "Shelter setup": "evacuation",
+        "Mobility assistance": "mobility_assistance",
+      };
+      const skills = (profile.skills || [])
+        .map((s) => skillMap[s] || (typeof s === "string" && s.includes("_") ? s : "general_support"))
+        .filter((v, i, a) => a.indexOf(v) === i);
+      if (!skills.includes("general_support")) {
+        skills.push("general_support");
+      }
+
+      const place = resolvePlace(profile.zone, profile.zone_id);
+      const zoneDefault = ZONE_DEFAULTS[String(profile.zone_id || "KE").toUpperCase()];
+
+      const volunteer = await apiRegisterVolunteer({
+        name: profile.name,
+        zone_id: String(profile.zone_id || profile.country || "KE").toUpperCase(),
+        available: true,
+        responder_level: "volunteer",
+        vehicle_type: profile.vehicleType === "none" ? null : profile.vehicleType,
+        capacity: Number(profile.capacity) || 1,
+        skills,
+        latitude:
+          profile.latitude ??
+          place?.lat ??
+          zoneDefault?.lat ??
+          undefined,
+        longitude:
+          profile.longitude ??
+          place?.lng ??
+          zoneDefault?.lng ??
+          undefined,
+      });
+
+      if (userId && volunteer?.volunteer_id) {
+        linkVolunteerId(userId, volunteer.volunteer_id);
+      }
+
+      const next = toClientSession(auth, {
+        volunteer_id: volunteer?.volunteer_id,
+        available: volunteer?.available,
+        vehicleType: volunteer?.vehicle_type,
+        capacity: volunteer?.capacity,
+        skills: volunteer?.skills,
+      });
+      persist(next);
+      return next;
+    }
+
     return {
       session,
       isSignedIn: !!session,
       isUser: session?.role === "user" || session?.role === "citizen",
       isAdmin: session?.role === "admin",
       isVolunteer: session?.role === "volunteer",
+      
+      // After OTP verify (or any AuthResponse) — persist client session
+      setSession(sessionData, extras = {}) {
+        // Already a client session (role + id, no nested API user)
+        if (sessionData?.role && sessionData?.id && !sessionData?.user) {
+          const next = { ...sessionData, ...extras };
+          persist(next);
+          return next;
+        }
+        const next = toClientSession(sessionData, extras);
+        persist(next);
+        return next;
+      },
 
       async loginAsUser(identifier, password) {
         const auth = await apiLoginUser({
           identifier: String(identifier || "").trim(),
           password,
         });
+        // OTP gate — do not create a fake citizen session yet
+        if (auth?.requires_otp) {
+          return auth;
+        }
         const next = toClientSession(auth);
         persist(next);
         return next;
@@ -85,6 +158,12 @@ export function AuthProvider({ children }) {
         if (profile.country) payload.country = profile.country;
 
         const auth = await apiRegisterUser(payload);
+        
+        // إذا كان النظام يتطلب OTP
+        if (auth?.requires_otp) {
+          return auth;
+        }
+
         const next = toClientSession(auth, {
           zone: profile.zone || "",
           countryCode: profile.countryCode || "",
@@ -98,6 +177,9 @@ export function AuthProvider({ children }) {
           identifier: String(identifier || "").trim(),
           password,
         });
+        if (auth?.requires_otp) {
+          return auth;
+        }
         if (auth?.user?.role !== "volunteer") {
           throw new Error("This account is not a volunteer account.");
         }
@@ -113,6 +195,8 @@ export function AuthProvider({ children }) {
 
       async signupVolunteer(profile) {
         const phone = toE164(profile.phone);
+        
+        // 1. تسجيل المستخدم أولاً في قاعدة البيانات
         const auth = await apiRegisterUser({
           display_name: profile.name,
           email: String(profile.email || "").trim().toLowerCase(),
@@ -125,46 +209,40 @@ export function AuthProvider({ children }) {
           notification_consent: true,
         });
 
-        const skillMap = {
-          "First aid": "medical_support",
-          Driving: "transportation",
-          "Boat / water rescue": "rescue_support",
-          Translation: "general_support",
-          Logistics: "general_support",
-          "Shelter setup": "evacuation",
-        };
-        const skills = (profile.skills || [])
-          .map((s) => skillMap[s] || "general_support")
-          .filter((v, i, a) => a.indexOf(v) === i);
+        // استخراج user_id بأمان
+        const userId = auth?.user_id || auth?.user?.user_id || auth?.data?.user_id;
 
-        const volunteer = await apiRegisterVolunteer({
-          name: profile.name,
-          zone_id: profile.zone_id || profile.country || "KE",
-          available: true,
-          responder_level: "volunteer",
-          vehicle_type: profile.vehicleType === "none" ? null : profile.vehicleType,
-          capacity: Number(profile.capacity) || 1,
-          skills,
-        });
+        // 2. إذا كان الحساب يتطلب تفعيل عبر الـ OTP
+        if (auth?.requires_otp || !auth?.access_token) {
+          // حفظ بيانات المتطوع المتبقية مؤقتاً لحين إدخال رمز الـ OTP
+          if (userId) {
+            sessionStorage.setItem(`pending_volunteer_${userId}`, JSON.stringify(profile));
+          }
 
-        linkVolunteerId(auth.user.user_id, volunteer.volunteer_id);
+          return {
+            requires_otp: true,
+            user_id: userId,
+            email: profile.email,
+          };
+        }
 
-        const next = toClientSession(auth, {
-          volunteer_id: volunteer.volunteer_id,
-          available: volunteer.available,
-          vehicleType: volunteer.vehicle_type,
-          capacity: volunteer.capacity,
-          skills: volunteer.skills,
-        });
-        persist(next);
-        return next;
+        // 3. في حال كان التسجيل مباشر بدون OTP
+        return await completeVolunteerRegistration(userId, profile, auth);
       },
+
+      finishVolunteerAfterOtp: completeVolunteerRegistration,
 
       async loginAsAdmin(identifier, password) {
         const auth = await apiLoginAdmin({
           identifier: String(identifier || "").trim(),
           password,
         });
+        if (auth?.requires_otp) {
+          return auth;
+        }
+        if (auth?.user?.role && auth.user.role !== "admin") {
+          throw new Error("This account is not an admin account.");
+        }
         const next = toClientSession(auth);
         persist(next);
         return next;

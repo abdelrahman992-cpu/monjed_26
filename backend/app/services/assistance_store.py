@@ -99,7 +99,7 @@ def _normalize_zone_id(
     zone_id: str,
 ) -> str:
 
-    return zone_id.strip()
+    return zone_id.strip().upper()
 
 
 

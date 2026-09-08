@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./lib/auth.jsx";
 import { ThemeProvider } from "./lib/theme.jsx";
 import { NavLoadProvider } from "./components/PageLoader.jsx";
@@ -16,6 +16,7 @@ import VolunteerAuthPage from "./pages/Volunteer.jsx";
 import VolunteerDashboardPage from "./pages/VolunteerDashboard.jsx";
 import AdminLoginPage from "./pages/AdminLogin.jsx";
 import AdminPage from "./pages/Admin.jsx";
+import RescueRobotPage from "./pages/RescueRobot.jsx";
 import NotFoundPage from "./pages/NotFound.jsx";
 
 const MEMBER_ROLES = ["user", "citizen", "volunteer", "admin"];
@@ -36,6 +37,11 @@ export default function App() {
             </Route>
             <Route element={<ProtectedRoute role="admin" loginTo="/volunteer" />}>
               <Route path="/admin" element={<AdminPage />} />
+              <Route path="/admin/rescue-robot" element={<RescueRobotPage />} />
+              <Route
+                path="/admin/simulation"
+                element={<Navigate to="/admin/rescue-robot" replace />}
+              />
             </Route>
 
             <Route element={<AppLayout />}>
@@ -45,12 +51,20 @@ export default function App() {
               <Route path="/volunteer" element={<VolunteerAuthPage />} />
               <Route path="/admin/login" element={<AdminLoginPage />} />
 
+              {/* Help is public (no login required) */}
+              <Route path="/help" element={<HelpPage />} />
+
               <Route element={<ProtectedRoute roles={MEMBER_ROLES} />}>
                 <Route path="/map" element={<MapPage />} />
                 <Route path="/report" element={<ReportPage />} />
-                <Route path="/help" element={<HelpPage />} />
                 <Route path="/trends" element={<TrendsPage />} />
               </Route>
+
+              {/* Legacy fleet-map sim → AI rescue robot twin */}
+              <Route
+                path="/simulation"
+                element={<Navigate to="/admin/rescue-robot" replace />}
+              />
 
               <Route path="*" element={<NotFoundPage />} />
             </Route>

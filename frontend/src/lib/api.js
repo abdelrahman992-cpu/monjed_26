@@ -119,6 +119,10 @@ export function patch(path, body) {
   return request(path, { method: "PATCH", body });
 }
 
+export function del(path) {
+  return request(path, { method: "DELETE" });
+}
+
 export function healthCheck() {
   return get("/health");
 }
@@ -173,7 +177,7 @@ export function submitContact(payload) {
   return post("/auth/contact", payload);
 }
 
-/** Auth — POST /auth/register | /auth/login | /auth/admin */
+/** Auth — POST /auth/register | /auth/login | /auth/admin | /auth/verify-otp */
 export function registerUser(payload) {
   return post("/auth/register", payload);
 }
@@ -184,6 +188,10 @@ export function loginUser(payload) {
 
 export function loginAdmin(payload) {
   return post("/auth/admin", payload);
+}
+
+export function verifyOtp(payload) {
+  return post("/auth/verify-otp", payload);
 }
 
 /** GET /users — platform directory for ops */
@@ -308,6 +316,24 @@ export function pipelineFlood(payload, accessibilityNeeds = []) {
   return post(`/pipeline/flood${qs ? `?${qs}` : ""}`, payload);
 }
 
+/** Rescue robot digital twin (3D) */
+
+export function createRescueMissionRemote(payload) {
+  return post("/rescue-robot/missions", payload);
+}
+
+export function mirrorRescueTelemetry(payload) {
+  return post("/rescue-robot/telemetry", payload);
+}
+
+export function getRescueTelemetryLatest() {
+  return get("/rescue-robot/telemetry/latest");
+}
+
+export function listRescueMissions() {
+  return get("/rescue-robot/missions");
+}
+
 export const api = {
   get,
   post,
@@ -325,6 +351,7 @@ export const api = {
   registerUser,
   loginUser,
   loginAdmin,
+  verifyOtp,
   listPlatformUsers,
   getUserProfile,
   updateUserProfile,
@@ -344,6 +371,10 @@ export const api = {
   dashboardAlerts,
   dashboardDecisions,
   pipelineFlood,
+  createRescueMissionRemote,
+  mirrorRescueTelemetry,
+  getRescueTelemetryLatest,
+  listRescueMissions,
 };
 
 export default api;

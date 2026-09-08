@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   CheckCircle2,
   Clock,
@@ -15,6 +16,7 @@ import {
   Waves,
   FileWarning,
   ArrowRight,
+  Box,
 } from "lucide-react";
 import { useAuth } from "../lib/auth.jsx";
 import {
@@ -94,6 +96,7 @@ function mapCommunityReport(r) {
 
 export default function AdminPage() {
   const { session } = useAuth();
+  const navigate = useNavigate();
   const [section, setSection] = useState("overview");
   const [apiStatus, setApiStatus] = useState("checking");
   const [analyzingId, setAnalyzingId] = useState(null);
@@ -337,6 +340,7 @@ export default function AdminPage() {
       count: volunteers.length,
     },
     { id: "engine", label: "Flood engine", icon: Waves },
+    { id: "rescue-robot", label: "AI rescue robot", icon: Box },
   ];
 
   const titles = {
@@ -347,6 +351,7 @@ export default function AdminPage() {
     users: "Platform users",
     network: "Volunteer network",
     engine: "Flood engine",
+    "rescue-robot": "AI rescue robot",
   };
 
   const apiBadge = (
@@ -388,7 +393,13 @@ export default function AdminPage() {
       } · Live assistance, volunteers & community reports from the API`}
       navItems={navItems}
       activeId={section}
-      onNavigate={setSection}
+      onNavigate={(id) => {
+        if (id === "rescue-robot") {
+          navigate("/admin/rescue-robot");
+          return;
+        }
+        setSection(id);
+      }}
       badge={apiBadge}
     >
       {(analyzeError || loadError) && (
@@ -939,7 +950,10 @@ export default function AdminPage() {
                         Auto-match available volunteer
                       </button>
                       {volunteers.filter(
-                        (v) => v.available && v.zone_id === h.zone_id
+                        (v) =>
+                          v.available &&
+                          String(v.zone_id || "").toUpperCase() ===
+                            String(h.zone_id || "").toUpperCase()
                       ).length === 0 && (
                         <p className="text-[11px] text-slate">
                           No available volunteers in zone {h.zone_id}.
