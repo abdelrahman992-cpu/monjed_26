@@ -8,11 +8,11 @@ from dotenv import load_dotenv
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 
+# Load environment variables from backend/.env
 load_dotenv(_BACKEND_DIR / ".env")
 
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -25,6 +25,9 @@ from app.routers.pipeline import router as pipeline_router
 from app.routers.assistance import router as assistance_router
 from app.routers.accessibility import router as accessibility_router
 from app.routers.dashboard import router as dashboard_router
+from app.routers.zones import (
+    router as zones_router,
+)
 from app.routers.rescue_robot import router as rescue_robot_router
 
 from app.routers import users
@@ -100,6 +103,9 @@ app.include_router(assistance_router)
 app.include_router(accessibility_router)
 app.include_router(test_ui_router)
 app.include_router(dashboard_router)
+app.include_router(
+    zones_router
+)
 app.include_router(rescue_robot_router)
 app.include_router(users.router)
 app.include_router(auth.router)

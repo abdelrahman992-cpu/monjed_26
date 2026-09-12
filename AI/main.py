@@ -36,7 +36,9 @@ from app.routers.dashboard import (
     router as dashboard_router,
 )
 
-
+from app.routers.zones import (
+    router as zones_router,
+)
 app = FastAPI(
     title="MONJED API",
     description=(
@@ -79,7 +81,9 @@ app.include_router(
 app.include_router(
     dashboard_router
 )
-
+app.include_router(
+    zones_router
+)
 app.include_router(
     test_ui_router
 )

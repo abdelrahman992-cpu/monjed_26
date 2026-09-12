@@ -99,7 +99,16 @@ class RegisterRequest(BaseModel):
     skills: list[SkillType] = Field(
         default_factory=list
     )
+    vehicle_type: Literal[
+    "Car",
+    "Motorcycle",
+    "Boat",
+    ] | None = None
 
+    capacity: int | None = Field(
+     default=None,
+     ge=1,
+    )
     notification_consent: bool = True
 
     @field_validator("phone", mode="before")

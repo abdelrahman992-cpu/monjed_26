@@ -27,7 +27,10 @@ def create_user(data: Dict[str, Any]) -> str:
     # ضمان وجود القيم الافتراضية للتحقق
     data.setdefault("is_verified", False)
     data.setdefault("two_factor_enabled", False)
-    data.setdefault("created_at", datetime.now(timezone.utc))
+    now = datetime.now(timezone.utc)
+
+    data.setdefault("created_at", now)
+    data.setdefault("updated_at", now)
     
     collection.insert_one(data)
     return data.get("user_id", "")

@@ -221,6 +221,8 @@ def register(
         "country": data.country.strip() if data.country else None,
         "preferred_language": data.preferred_language,
         "accessibility_needs": list(dict.fromkeys(data.accessibility_needs)),
+        "vehicle_type": data.vehicle_type,
+        "capacity": data.capacity,
         "notification_consent": data.notification_consent,
         "notifications_enabled": data.notification_consent,
         "is_verified": False,
